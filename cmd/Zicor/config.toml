@@ -1,0 +1,4 @@
+
+[Connection]
+  LocalAddress = "127.0.0.1:19132"
+  RemoteAddress = "play.cubecraft.net:19132"
