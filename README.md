@@ -81,7 +81,7 @@ divergence is documented as it accumulates.
 
 ## Contributing
 
-This project is open to collaborators — including people who want to take a leading role.
+This project is open to collaborators.
 The core plumbing is done; the fun part (mods) isn't. If any of this sounds like you:
 
 - You know Go (or want to learn it via a real project)
