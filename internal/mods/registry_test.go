@@ -118,3 +118,13 @@ func TestRegistryConcurrentRegistrationAndLookup(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestZeroValueRegistry(t *testing.T) {
+	var registry Registry
+	if err := registry.Register("zeromod", func() api.Mod { return registryTestMod{} }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.New("zeromod"); err != nil {
+		t.Fatal(err)
+	}
+}
