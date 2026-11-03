@@ -3,29 +3,40 @@
 The `api` package is the public contract for Zicor mods. Mods should import
 this package and avoid depending on `internal/` or Gophertunnel directly.
 
-## Minimal mod contract
+## Mod lifecycle
 
 A mod implements `api.Mod`:
 
 ```go
 package example
 
-import "github.com/WhoIsTheAxl/Zicor/api"
+import (
+	"context"
+
+	"github.com/WhoIsTheAxl/Zicor/api"
+)
 
 type ExampleMod struct{}
 
 func (ExampleMod) Init(ctx api.ModContext) error {
 	ctx.Logger().Info("example mod initialized", "mod", ctx.Info().ID)
-	if err := ctx.Client().SendMessage("Hello from ExampleMod!"); err != nil {
-		return err
-	}
+	return ctx.Client().SendMessage("Hello from ExampleMod!")
+}
+
+func (ExampleMod) Shutdown(ctx context.Context) error {
+	// Stop and release mod-owned resources here.
 	return nil
 }
 ```
 
-Zicor supplies the `ModContext`. It exposes the session's Minecraft client,
-a mod-scoped logger, and read-only mod metadata. A mod does not construct its
-own context.
+The runtime creates the `ModContext`; mods must not construct their own.
+Its `Context()` is cancelled before `Shutdown` is called, allowing
+mod-owned goroutines and operations to stop. `Shutdown` is called exactly
+once after a successful initialization, with a cleanup context that has a
+bounded deadline. It is not called when `Init` fails.
+
+The context also exposes the session's Minecraft client, a mod-scoped logger,
+and read-only mod metadata.
 
 ## Minimum mod directory
 
