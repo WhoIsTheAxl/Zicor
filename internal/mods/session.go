@@ -293,8 +293,8 @@ func newModContext(
 func (c *modContext) Context() context.Context { return c.ctx }
 func (c *modContext) Client() minecraft.Client { return c.client }
 func (c *modContext) Events() api.EventBus     { return c.events }
-func (c *modContext) Logger() api.Logger        { return c.logger }
-func (c *modContext) Info() api.ModInfo         { return c.info }
+func (c *modContext) Logger() api.Logger       { return c.logger }
+func (c *modContext) Info() api.ModInfo        { return c.info }
 
 type slogModLogger struct {
 	logger *slog.Logger
