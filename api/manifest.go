@@ -61,7 +61,7 @@ func (m Manifest) Validate() error {
 	if strings.TrimSpace(m.Name) == "" {
 		return errors.New("mod name is required")
 	}
-	if !versionPattern.MatchString(m.Version) {
+	if !isValidSemanticVersion(m.Version) {
 		return fmt.Errorf("invalid mod version %q: expected semantic version", m.Version)
 	}
 	if m.APIVersion != CurrentAPIVersion {
@@ -70,8 +70,8 @@ func (m Manifest) Validate() error {
 
 	seen := make(map[string]struct{}, len(m.Dependencies))
 	for _, dep := range m.Dependencies {
-		if !modIDPattern.MatchString(dep.ID) {
-			return fmt.Errorf("invalid dependency id %q", dep.ID)
+		if err := ValidateModID(dep.ID); err != nil {
+			return fmt.Errorf("invalid dependency: %w", err)
 		}
 		if dep.ID == m.ID {
 			return fmt.Errorf("mod %q cannot depend on itself", m.ID)
@@ -80,15 +80,16 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("duplicate dependency %q", dep.ID)
 		}
 		seen[dep.ID] = struct{}{}
-		if dep.Version != "" && !versionPattern.MatchString(dep.Version) {
+		if dep.Version != "" && !isValidSemanticVersion(dep.Version) {
 			return fmt.Errorf("invalid version %q for dependency %q", dep.Version, dep.ID)
 		}
 	}
 	return nil
 }
 
-// DecodeManifest decodes one manifest from r, rejects unknown fields and
-// trailing JSON values, enforces a 1 MiB size limit, and validates the result.
+// DecodeManifest decodes one manifest from r, rejects unknown or duplicate
+// fields, rejects trailing JSON values, enforces a 1 MiB size limit, and
+// validates the result.
 func DecodeManifest(r io.Reader) (Manifest, error) {
 	var manifest Manifest
 	if r == nil {
@@ -101,6 +102,9 @@ func DecodeManifest(r io.Reader) (Manifest, error) {
 	}
 	if len(data) > maxManifestSize {
 		return manifest, fmt.Errorf("manifest exceeds maximum size of %d bytes", maxManifestSize)
+	}
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return manifest, fmt.Errorf("invalid manifest JSON: %w", err)
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -119,4 +123,101 @@ func DecodeManifest(r io.Reader) (Manifest, error) {
 		return manifest, fmt.Errorf("invalid manifest: %w", err)
 	}
 	return manifest, nil
+}
+
+func isValidSemanticVersion(version string) bool {
+	if !versionPattern.MatchString(version) {
+		return false
+	}
+
+	coreAndPrerelease := strings.SplitN(version, "+", 2)[0]
+	separator := strings.IndexByte(coreAndPrerelease, '-')
+	if separator < 0 {
+		return true
+	}
+
+	prerelease := coreAndPrerelease[separator+1:]
+	for _, identifier := range strings.Split(prerelease, ".") {
+		numeric := true
+		for _, char := range identifier {
+			if char < '0' || char > '9' {
+				numeric = false
+				break
+			}
+		}
+		if numeric && len(identifier) > 1 && identifier[0] == '0' {
+			return false
+		}
+	}
+	return true
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := scanJSONValue(decoder); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err == nil {
+		return errors.New("manifest contains multiple JSON values")
+	} else if err != io.EOF {
+		return fmt.Errorf("invalid trailing JSON data: %w", err)
+	}
+	return nil
+}
+
+func scanJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("object field name is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate object field %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := scanJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim('}') {
+			return errors.New("unterminated JSON object")
+		}
+	case '[':
+		for decoder.More() {
+			if err := scanJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim(']') {
+			return errors.New("unterminated JSON array")
+		}
+	default:
+		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+	return nil
 }
