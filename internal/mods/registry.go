@@ -20,7 +20,7 @@ var (
 )
 
 // Registry maps validated mod IDs to factories compiled into the Zicor
-// executable. It is safe for concurrent use.
+// executable. It is safe for concurrent use. The zero value is ready for use.
 type Registry struct {
 	mu        sync.RWMutex
 	factories map[string]api.ModFactory
@@ -46,6 +46,9 @@ func (r *Registry) Register(id string, factory api.ModFactory) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.factories == nil {
+		r.factories = make(map[string]api.ModFactory)
+	}
 	if _, exists := r.factories[id]; exists {
 		return fmt.Errorf("%w: %q", ErrModAlreadyRegistered, id)
 	}
