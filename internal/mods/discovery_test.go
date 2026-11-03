@@ -62,6 +62,24 @@ func TestDiscoverRejectsDuplicateIDs(t *testing.T) {
 	}
 }
 
+func TestDiscoverRejectsSymlinkedManifest(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(outside, []byte(`{"id":"external","name":"External","version":"1.0.0","api_version":"0.1.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "linked")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "manifest.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := Discover(root); err == nil {
+		t.Fatal("expected symlink manifest to be rejected")
+	}
+}
+
 func TestResolveOrder(t *testing.T) {
 	root := t.TempDir()
 	writeMod(t, root, "app", "app", "1.0.0", []api.Dependency{{ID: "core", Version: "2.0.0"}})
