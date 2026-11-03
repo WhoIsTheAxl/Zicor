@@ -18,6 +18,9 @@ type ModContext interface {
 	// Client returns the Minecraft client represented by this session.
 	Client() minecraft.Client
 
+	// Events returns the event bus scoped to this mod session.
+	Events() EventBus
+
 	// Logger returns a logger scoped to this mod.
 	Logger() Logger
 
