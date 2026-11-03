@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,7 +103,7 @@ func DecodeManifest(r io.Reader) (Manifest, error) {
 		return manifest, fmt.Errorf("manifest exceeds maximum size of %d bytes", maxManifestSize)
 	}
 
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
 		return manifest, fmt.Errorf("decode manifest: %w", err)
