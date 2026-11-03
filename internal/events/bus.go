@@ -93,6 +93,9 @@ func (b *Bus) Publish(ctx context.Context, event any) error {
 	if isNilEvent(event) {
 		return ErrNilEvent
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	eventType := reflect.TypeOf(event)
 	b.mu.RLock()
