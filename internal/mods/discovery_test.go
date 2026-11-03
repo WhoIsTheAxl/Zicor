@@ -1,10 +1,10 @@
 package mods
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/WhoIsTheAxl/Zicor/api"
@@ -17,15 +17,8 @@ func writeMod(t *testing.T, root, folder, id, version string, deps []api.Depende
 		t.Fatal(err)
 	}
 	manifest := api.Manifest{ID: id, Name: id, Version: version, APIVersion: api.CurrentAPIVersion, Dependencies: deps}
-	data := []byte(`{"id":"` + manifest.ID + `","name":"` + manifest.Name + `","version":"` + manifest.Version + `","api_version":"` + manifest.APIVersion + `"`)
-	if len(deps) > 0 {
-		data = []byte(strings.TrimSuffix(string(data), "}") + `,"dependencies":[`)
-		for i, dep := range deps {
-			if i > 0 { data = append(data, ',') }
-			data = append(data, []byte(`{"id":"`+dep.ID+`","version":"`+dep.Version+`"}`)...)
-		}
-		data = append(data, []byte(`]}`)...)
-	}
+	data, err := json.Marshal(manifest)
+	if err != nil { t.Fatal(err) }
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
