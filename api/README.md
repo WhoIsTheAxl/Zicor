@@ -1,6 +1,6 @@
 # Zicor Mod API
 
-The `api` module is the public contract for Zicor mods. Mods should import
+The `api` package is the public contract for Zicor mods. Mods should import
 this package and avoid depending on `internal/` or Gophertunnel directly.
 
 ## Minimal mod contract
@@ -16,7 +16,9 @@ type ExampleMod struct{}
 
 func (ExampleMod) Init(ctx api.ModContext) error {
 	ctx.Logger().Info("example mod initialized", "mod", ctx.Info().ID)
-	ctx.Client().SendMessage("Hello from ExampleMod!")
+	if err := ctx.Client().SendMessage("Hello from ExampleMod!"); err != nil {
+		return err
+	}
 	return nil
 }
 ```
@@ -27,8 +29,6 @@ own context.
 
 ## Minimum mod directory
 
-The intended minimum directory layout is:
-
 ```text
 Mods/
 └── ExampleMod/
@@ -37,9 +37,9 @@ Mods/
 ```
 
 The manifest describes the mod; `entry.go` is the conventional source entry
-file. The runtime mechanism used to compile/load mod code is still being
-designed, so this API contract does not yet promise that arbitrary source
-folders can be loaded dynamically.
+file. Discovery and source execution are separate concerns: Zicor can discover
+and validate a manifest without dynamically executing arbitrary Go source.
+The Go mod execution strategy remains a separate runtime decision.
 
 ## Manifest
 
@@ -51,20 +51,44 @@ folders can be loaded dynamically.
   "api_version": "0.1.0",
   "description": "An example Zicor mod",
   "authors": ["Axl"],
-  "dependencies": []
+  "dependencies": [
+    { "id": "corelib", "version": "1.2.0" }
+  ]
 }
 ```
 
-- `id`, `name`, `version`, and `api_version` are required.
-- `id` should be a stable, lowercase identifier.
-- `version` identifies the mod release.
-- `api_version` identifies the Zicor API contract the mod targets.
-- `dependencies` is reserved for loader dependency resolution.
+Required fields are `id`, `name`, `version`, and `api_version`.
+
+- IDs are 1–64 characters, start with a lowercase letter, and contain only
+  lowercase letters, digits, underscores, or hyphens.
+- Mod and dependency versions use semantic-version syntax.
+- This API revision accepts only `api_version: "0.1.0"`.
+- Dependency versions are exact matches in this initial implementation.
+- Unknown JSON fields, malformed JSON, trailing JSON values, and manifests
+  larger than 1 MiB are rejected.
+- Duplicate dependency IDs and self-dependencies are rejected.
+
+Use `api.DecodeManifest` to decode and validate a manifest from an
+`io.Reader`, or `Manifest.Validate` when constructing one in Go.
+
+## Discovery and dependency ordering
+
+The `internal/mods` package provides runtime-side helpers:
+
+- `Discover(root)` scans immediate mod directories for `manifest.json`,
+  validates each manifest, rejects duplicate mod IDs, and returns stable
+  ID-sorted results.
+- `ResolveOrder(mods)` verifies required dependencies and exact version
+  constraints, then returns a dependency-first order. Missing dependencies,
+  duplicate IDs, and dependency cycles are errors.
+
+These helpers do not compile or execute `entry.go`.
 
 ## Design boundaries
 
 - `api/` contains public interfaces and data types.
-- `internal/` contains Zicor's implementations.
-- Public interfaces should describe capabilities, not expose implementation
+- `internal/` contains Zicor's implementations and runtime helpers.
+- Public interfaces describe capabilities rather than exposing implementation
   details such as `*minecraft.Conn` or Gophertunnel packet types.
-- The API is intentionally small while the first real mods are being built.
+- Keep the public API small and add capabilities when a real mod use case
+  establishes the required contract.
