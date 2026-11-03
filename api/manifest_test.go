@@ -7,9 +7,9 @@ import (
 
 func validManifest() Manifest {
 	return Manifest{
-		ID: "example",
-		Name: "Example Mod",
-		Version: "1.2.3",
+		ID:         "example",
+		Name:       "Example Mod",
+		Version:    "1.2.3",
 		APIVersion: CurrentAPIVersion,
 	}
 }
@@ -58,9 +58,9 @@ func TestDecodeManifest(t *testing.T) {
 
 func TestDecodeManifestRejectsMalformedInput(t *testing.T) {
 	tests := map[string]string{
-		"unknown field": `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0","surprise":true}`,
+		"unknown field":  `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0","surprise":true}`,
 		"trailing value": `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0"} {}`,
-		"invalid json": `{"id":`,
+		"invalid json":   `{"id":`,
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
