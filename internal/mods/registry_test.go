@@ -3,6 +3,7 @@ package mods
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -102,7 +103,7 @@ func TestRegistryConcurrentRegistrationAndLookup(t *testing.T) {
 	const count = 32
 	var wg sync.WaitGroup
 	for i := 0; i < count; i++ {
-		id := "mod_" + string(rune('a'+i))
+		id := fmt.Sprintf("mod_%02d", i)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
