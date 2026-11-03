@@ -208,9 +208,11 @@ func (s *Session) Close() error {
 	s.mu.Unlock()
 
 	var shutdownErrors []error
+	for _, entry := range mods {
+		entry.cancel()
+	}
 	for i := len(mods) - 1; i >= 0; i-- {
 		entry := mods[i]
-		entry.cancel()
 
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 		result := make(chan error, 1)
@@ -319,11 +321,23 @@ func (b scopedEventBus) Subscribe(eventType reflect.Type, handler api.EventHandl
 	if err := b.ctx.Err(); err != nil {
 		return nil, err
 	}
+	if handler == nil {
+		return nil, errors.New("event handler is nil")
+	}
 	sub, err := b.bus.Subscribe(eventType, func(eventCtx context.Context, event any) error {
 		if b.ctx.Err() != nil {
 			return nil
 		}
-		return handler(eventCtx, event)
+		handlerCtx, cancel := context.WithCancel(eventCtx)
+		stop := context.AfterFunc(b.ctx, cancel)
+		defer func() {
+			stop()
+			cancel()
+		}()
+		if handlerCtx.Err() != nil {
+			return nil
+		}
+		return handler(handlerCtx, event)
 	})
 	if err != nil {
 		return nil, err
