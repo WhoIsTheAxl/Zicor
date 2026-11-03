@@ -43,11 +43,19 @@ type ModInfo struct {
 	APIVersion string
 }
 
+// ValidateModID validates a stable mod identifier.
+func ValidateModID(id string) error {
+	if !modIDPattern.MatchString(id) {
+		return fmt.Errorf("invalid mod id %q: use 1-64 lowercase letters, digits, '_' or '-', starting with a letter", id)
+	}
+	return nil
+}
+
 // Validate checks the manifest's required fields and internal consistency.
 // It does not check whether dependencies are installed or compatible.
 func (m Manifest) Validate() error {
-	if !modIDPattern.MatchString(m.ID) {
-		return fmt.Errorf("invalid mod id %q: use 1-64 lowercase letters, digits, '_' or '-', starting with a letter", m.ID)
+	if err := ValidateModID(m.ID); err != nil {
+		return err
 	}
 	if strings.TrimSpace(m.Name) == "" {
 		return errors.New("mod name is required")
