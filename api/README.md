@@ -36,7 +36,48 @@ once after a successful initialization, with a cleanup context that has a
 bounded deadline. It is not called when `Init` fails.
 
 The context also exposes the session's Minecraft client, a mod-scoped logger,
-and read-only mod metadata.
+a session event bus, and read-only mod metadata.
+
+## Events
+
+Events use exact concrete Go types. The generic helpers preserve type safety
+for mod authors:
+
+```go
+type ChatReceived struct {
+	Sender  string
+	Message string
+}
+
+func (ExampleMod) Init(ctx api.ModContext) error {
+	subscription, err := api.Subscribe[ChatReceived](
+		ctx.Events(),
+		func(eventCtx context.Context, event ChatReceived) error {
+			ctx.Logger().Info("chat received", "sender", event.Sender)
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		<-ctx.Context().Done()
+		subscription.Cancel()
+	}()
+	return nil
+}
+```
+
+Publishers use `api.Publish(ctx, bus, event)`. The runtime event bus invokes
+handlers synchronously in subscription order. Handler errors are collected
+without preventing later handlers from running; panics are recovered and
+reported to the publisher. Subscription cancellation is safe to call more
+than once. A handler already running when cancellation occurs may finish.
+
+Each event is matched by its exact concrete Go type; a pointer event and a
+value event are different event types. The event bus is safe for concurrent
+use, but a handler should still protect its own mutable state.
 
 ## Minimum mod directory
 
@@ -50,7 +91,33 @@ Mods/
 The manifest describes the mod; `entry.go` is the conventional source entry
 file. Discovery and source execution are separate concerns: Zicor can discover
 and validate a manifest without dynamically executing arbitrary Go source.
-The Go mod execution strategy remains a separate runtime decision.
+
+## Current Go execution model
+
+Zicor uses a static factory registry rather than Go's platform-restricted
+`plugin` mechanism or IPC. The host executable imports each mod package and
+registers its constructor:
+
+```go
+registry := mods.NewRegistry()
+if err := registry.Register("examplemod", func() api.Mod {
+	return example.New()
+}); err != nil {
+	return err
+}
+```
+
+A registered factory creates a fresh mod instance for each session. The
+registry validates identifiers, rejects duplicate registrations, sorts its
+listed IDs, and reports missing registrations, nil instances, and factory
+panics.
+
+This means adding or changing Go mod code currently requires rebuilding the
+Zicor executable. The `Mods/ModName/entry.go` layout remains the intended
+source organization, but it is not a drop-in runtime compiler or loader.
+The manifest discovery layer and compiled factory registry are deliberately
+separate so a future execution mechanism can be added without exposing
+Gophertunnel internals through the public API.
 
 ## Manifest
 
@@ -80,18 +147,20 @@ Required fields are `id`, `name`, `version`, and `api_version`.
 - Duplicate dependency IDs and self-dependencies are rejected.
 
 Use `api.DecodeManifest` to decode and validate a manifest from an
-`io.Reader`, or `Manifest.Validate` when constructing one in Go.
+`io.Reader`, `api.ValidateModID` to validate an identifier, or
+`Manifest.Validate` when constructing one in Go.
 
 ## Discovery and dependency ordering
 
 The `internal/mods` package provides runtime-side helpers:
 
 - `Discover(root)` scans immediate mod directories for `manifest.json`,
-  validates each manifest, rejects duplicate mod IDs, and returns stable
-  ID-sorted results.
+  validates each manifest, rejects duplicate mod IDs and symlinked manifests,
+  and returns stable ID-sorted results.
 - `ResolveOrder(mods)` verifies required dependencies and exact version
-  constraints, then returns a dependency-first order. Missing dependencies,
-  duplicate IDs, and dependency cycles are errors.
+  constraints, then returns a deterministic dependency-first order. Missing
+  dependencies, duplicate IDs, version mismatches, and dependency cycles are
+  errors.
 
 These helpers do not compile or execute `entry.go`.
 
