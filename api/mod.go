@@ -2,6 +2,10 @@ package api
 
 import "context"
 
+// ModFactory constructs a fresh mod instance for one session. Factories must
+// not return a nil Mod. The runtime invokes a factory once per mod session.
+type ModFactory func() Mod
+
 // Mod is the lifecycle contract implemented by a Zicor mod.
 //
 // Init is called once for each mod session. If Init returns an error, the
