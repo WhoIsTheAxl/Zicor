@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -281,7 +282,7 @@ func newModContext(
 	return &modContext{
 		ctx:    ctx,
 		client: client,
-		events: eventBus,
+		events: scopedEventBus{ctx: ctx, bus: eventBus},
 		logger: slogModLogger{logger: logger},
 		info:   info,
 	}
@@ -307,4 +308,48 @@ func (l slogModLogger) Warn(message string, args ...any) {
 
 func (l slogModLogger) Error(message string, args ...any) {
 	l.logger.Error(message, args...)
+}
+
+type scopedEventBus struct {
+	ctx context.Context
+	bus api.EventBus
+}
+
+func (b scopedEventBus) Subscribe(eventType reflect.Type, handler api.EventHandler) (api.Subscription, error) {
+	if err := b.ctx.Err(); err != nil {
+		return nil, err
+	}
+	sub, err := b.bus.Subscribe(eventType, func(eventCtx context.Context, event any) error {
+		if b.ctx.Err() != nil {
+			return nil
+		}
+		return handler(eventCtx, event)
+	})
+	if err != nil {
+		return nil, err
+	}
+	stop := context.AfterFunc(b.ctx, sub.Cancel)
+	if err := b.ctx.Err(); err != nil {
+		stop()
+		sub.Cancel()
+		return nil, err
+	}
+	return &scopedSubscription{Subscription: sub, stop: stop}, nil
+}
+
+func (b scopedEventBus) Publish(ctx context.Context, event any) error {
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	return b.bus.Publish(ctx, event)
+}
+
+type scopedSubscription struct {
+	api.Subscription
+	stop func() bool
+}
+
+func (s *scopedSubscription) Cancel() {
+	s.stop()
+	s.Subscription.Cancel()
 }
