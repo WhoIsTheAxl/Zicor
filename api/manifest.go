@@ -12,7 +12,7 @@ import (
 const maxManifestSize = 1 << 20
 
 var (
-	modIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+	modIDPattern   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 	versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 )
 
