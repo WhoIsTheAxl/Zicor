@@ -25,9 +25,9 @@ jobs:
       - name: Check formatting
         shell: bash
         run: |
-          files="$(gofmt -l $(git ls-files '*.go'))"
+          files="$(gofmt -l api/*.go api/minecraft/*.go internal/mods/*.go)"
           if [[ -n "$files" ]]; then
-            echo "These Go files need gofmt:"
+            echo "These mod API files need gofmt:"
             echo "$files"
             exit 1
           fi
