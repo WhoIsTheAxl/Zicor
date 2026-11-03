@@ -1,0 +1,43 @@
+name: Go
+
+on:
+  push:
+    branches: [main, mod-api-foundation]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          mapfile -t go_files < <(find api internal/mods internal/events -type f -name '*.go' -size +0c)
+          files="$(gofmt -l "${go_files[@]}")"
+          if [[ -n "$files" ]]; then
+            echo "These mod API files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Test mod API and runtime packages
+        run: go test ./api/... ./internal/mods/... ./internal/events/...
+
+      - name: Run race detector
+        run: go test -race ./internal/mods/... ./internal/events/...
+
+      - name: Vet mod API and runtime packages
+        run: go vet ./api/... ./internal/mods/... ./internal/events/...
