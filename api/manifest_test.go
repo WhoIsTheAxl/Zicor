@@ -29,6 +29,7 @@ func TestManifestValidateRejectsInvalidFields(t *testing.T) {
 		{"invalid id", func(m *Manifest) { m.ID = "../escape" }},
 		{"missing name", func(m *Manifest) { m.Name = "  " }},
 		{"invalid version", func(m *Manifest) { m.Version = "latest" }},
+		{"leading zero in prerelease", func(m *Manifest) { m.Version = "1.2.3-alpha.01" }},
 		{"unsupported api", func(m *Manifest) { m.APIVersion = "9.0.0" }},
 		{"self dependency", func(m *Manifest) { m.Dependencies = []Dependency{{ID: m.ID}} }},
 		{"duplicate dependency", func(m *Manifest) { m.Dependencies = []Dependency{{ID: "core"}, {ID: "core"}} }},
@@ -45,6 +46,19 @@ func TestManifestValidateRejectsInvalidFields(t *testing.T) {
 	}
 }
 
+func TestValidateModID(t *testing.T) {
+	for _, id := range []string{"a", "example_mod", "mod-1", "mod123"} {
+		if err := ValidateModID(id); err != nil {
+			t.Errorf("ValidateModID(%q) error = %v", id, err)
+		}
+	}
+	for _, id := range []string{"", "1mod", "Upper", "../escape", strings.Repeat("a", 65)} {
+		if err := ValidateModID(id); err == nil {
+			t.Errorf("ValidateModID(%q) unexpectedly succeeded", id)
+		}
+	}
+}
+
 func TestDecodeManifest(t *testing.T) {
 	input := `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0"}`
 	got, err := DecodeManifest(strings.NewReader(input))
@@ -58,9 +72,11 @@ func TestDecodeManifest(t *testing.T) {
 
 func TestDecodeManifestRejectsMalformedInput(t *testing.T) {
 	tests := map[string]string{
-		"unknown field":  `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0","surprise":true}`,
-		"trailing value": `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0"} {}`,
-		"invalid json":   `{"id":`,
+		"unknown field":         `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0","surprise":true}`,
+		"trailing value":        `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0"} {}`,
+		"invalid json":          `{"id":`,
+		"duplicate field":       `{"id":"first","id":"second","name":"Example","version":"1.0.0","api_version":"0.1.0"}`,
+		"nested duplicate field": `{"id":"example","name":"Example","version":"1.0.0","api_version":"0.1.0","dependencies":[{"id":"core","id":"other"}]}`,
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -75,5 +91,11 @@ func TestDecodeManifestRejectsOversizedInput(t *testing.T) {
 	input := strings.NewReader(strings.Repeat(" ", maxManifestSize+1))
 	if _, err := DecodeManifest(input); err == nil {
 		t.Fatal("expected size limit error")
+	}
+}
+
+func TestDecodeManifestRejectsNilReader(t *testing.T) {
+	if _, err := DecodeManifest(nil); err == nil {
+		t.Fatal("expected nil reader error")
 	}
 }
