@@ -159,6 +159,9 @@ func TestSubscribeRejectsInvalidArguments(t *testing.T) {
 	if _, err := api.Subscribe[testEvent](nil, func(context.Context, testEvent) error { return nil }); err == nil {
 		t.Fatal("expected nil bus error")
 	}
+	if _, err := api.Subscribe[testEvent](bus, nil); err == nil {
+		t.Fatal("expected nil typed handler error")
+	}
 }
 
 func TestPublishRejectsNilArguments(t *testing.T) {
@@ -197,4 +200,23 @@ func TestConcurrentSubscribeCancelAndPublish(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestZeroValueBus(t *testing.T) {
+	var bus Bus
+	called := false
+	_, err := api.Subscribe[testEvent](&bus, func(context.Context, testEvent) error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(context.Background(), testEvent{}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("zero-value bus did not dispatch event")
+	}
+	bus.Close()
 }
