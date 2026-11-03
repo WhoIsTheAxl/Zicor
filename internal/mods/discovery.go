@@ -1,7 +1,9 @@
-// Package mods discovers and validates installed Zicor mod manifests.
+// Package mods discovers, validates, and orders installed Zicor mods.
 package mods
 
 import (
+	"container/heap"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,8 +20,9 @@ type DiscoveredMod struct {
 }
 
 // Discover scans the immediate child directories of root for manifest.json.
-// Results are sorted by mod ID for deterministic behavior. Symlinked entries
-// and non-directory entries are ignored.
+// Results are sorted by mod ID for deterministic behavior. Symlinked entries,
+// non-directory entries, and directories without a manifest are ignored.
+// A manifest itself must be a regular file; symlinked manifests are rejected.
 func Discover(root string) ([]DiscoveredMod, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -34,11 +37,20 @@ func Discover(root string) ([]DiscoveredMod, error) {
 		}
 		dir := filepath.Join(root, entry.Name())
 		manifestPath := filepath.Join(dir, "manifest.json")
-		file, err := os.Open(manifestPath)
+
+		info, err := os.Lstat(manifestPath)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
+			return nil, fmt.Errorf("inspect manifest for %q: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("manifest %q must be a regular file (symlinks are not allowed)", manifestPath)
+		}
+
+		file, err := os.Open(manifestPath)
+		if err != nil {
 			return nil, fmt.Errorf("open manifest for %q: %w", entry.Name(), err)
 		}
 		manifest, decodeErr := api.DecodeManifest(file)
@@ -63,7 +75,8 @@ func Discover(root string) ([]DiscoveredMod, error) {
 }
 
 // ResolveOrder returns mods in dependency-first order. Dependencies must be
-// present; a declared exact version must match. Cycles are reported explicitly.
+// present; a declared version must exactly match. If multiple mods are ready
+// at the same time, their IDs determine the order. Cycles are reported.
 func ResolveOrder(discovered []DiscoveredMod) ([]DiscoveredMod, error) {
 	byID := make(map[string]DiscoveredMod, len(discovered))
 	for _, mod := range discovered {
@@ -77,47 +90,68 @@ func ResolveOrder(discovered []DiscoveredMod) ([]DiscoveredMod, error) {
 		byID[id] = mod
 	}
 
-	state := make(map[string]uint8, len(byID))
-	order := make([]DiscoveredMod, 0, len(byID))
-	var visit func(string) error
-	visit = func(id string) error {
-		switch state[id] {
-		case 1:
-			return fmt.Errorf("dependency cycle detected at mod %q", id)
-		case 2:
-			return nil
-		}
-		mod, ok := byID[id]
-		if !ok {
-			return fmt.Errorf("required mod %q is not installed", id)
-		}
-		state[id] = 1
+	indegree := make(map[string]int, len(byID))
+	dependents := make(map[string][]string, len(byID))
+	for id, mod := range byID {
 		for _, dep := range mod.Manifest.Dependencies {
 			dependency, ok := byID[dep.ID]
 			if !ok {
-				return fmt.Errorf("mod %q requires missing dependency %q", id, dep.ID)
+				return nil, fmt.Errorf("mod %q requires missing dependency %q", id, dep.ID)
 			}
 			if dep.Version != "" && dependency.Manifest.Version != dep.Version {
-				return fmt.Errorf("mod %q requires %s version %q, found %q", id, dep.ID, dep.Version, dependency.Manifest.Version)
+				return nil, fmt.Errorf("mod %q requires %s version %q, found %q", id, dep.ID, dep.Version, dependency.Manifest.Version)
 			}
-			if err := visit(dep.ID); err != nil {
-				return err
-			}
+			indegree[id]++
+			dependents[dep.ID] = append(dependents[dep.ID], id)
 		}
-		state[id] = 2
-		order = append(order, mod)
-		return nil
 	}
 
-	ids := make([]string, 0, len(byID))
+	ready := &idHeap{}
+	heap.Init(ready)
 	for id := range byID {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		if err := visit(id); err != nil {
-			return nil, err
+		if indegree[id] == 0 {
+			heap.Push(ready, id)
 		}
 	}
+
+	order := make([]DiscoveredMod, 0, len(byID))
+	for ready.Len() > 0 {
+		id := heap.Pop(ready).(string)
+		order = append(order, byID[id])
+		for _, dependentID := range dependents[id] {
+			indegree[dependentID]--
+			if indegree[dependentID] == 0 {
+				heap.Push(ready, dependentID)
+			}
+		}
+	}
+	if len(order) != len(byID) {
+		cyclic := make([]string, 0, len(byID)-len(order))
+		for id, degree := range indegree {
+			if degree > 0 {
+				cyclic = append(cyclic, id)
+			}
+		}
+		sort.Strings(cyclic)
+		return nil, fmt.Errorf("dependency cycle detected among mods: %v", cyclic)
+	}
 	return order, nil
+}
+
+type idHeap []string
+
+func (h idHeap) Len() int           { return len(h) }
+func (h idHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h idHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *idHeap) Push(value any) {
+	*h = append(*h, value.(string))
+}
+
+func (h *idHeap) Pop() any {
+	old := *h
+	last := len(old) - 1
+	value := old[last]
+	*h = old[:last]
+	return value
 }
