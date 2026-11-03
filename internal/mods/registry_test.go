@@ -14,12 +14,12 @@ import (
 
 type registryTestMod struct{}
 
-func (registryTestMod) Init(api.ModContext) error { return nil }
+func (registryTestMod) Init(api.ModContext) error      { return nil }
 func (registryTestMod) Shutdown(context.Context) error { return nil }
 
 type nilRegistryTestMod struct{}
 
-func (*nilRegistryTestMod) Init(api.ModContext) error { return nil }
+func (*nilRegistryTestMod) Init(api.ModContext) error      { return nil }
 func (*nilRegistryTestMod) Shutdown(context.Context) error { return nil }
 
 func TestRegistryRegisterAndCreate(t *testing.T) {
