@@ -32,7 +32,7 @@ var (
 // Bus dispatches events to subscribers of the exact concrete Go event type.
 // It invokes handlers synchronously and in subscription order. A handler
 // error or panic is reported to the publisher, but does not prevent the
-// remaining handlers from running.
+// remaining handlers from running. The zero value is ready for use.
 type Bus struct {
 	mu     sync.RWMutex
 	closed bool
@@ -65,6 +65,9 @@ func (b *Bus) Subscribe(eventType reflect.Type, handler api.EventHandler) (api.S
 	defer b.mu.Unlock()
 	if b.closed {
 		return nil, ErrClosed
+	}
+	if b.subs == nil {
+		b.subs = make(map[reflect.Type][]*subscription)
 	}
 	b.nextID++
 	sub := &subscription{
