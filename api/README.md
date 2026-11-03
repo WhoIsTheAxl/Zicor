@@ -33,7 +33,8 @@ The runtime creates the `ModContext`; mods must not construct their own.
 Its `Context()` is cancelled before `Shutdown` is called, allowing
 mod-owned goroutines and operations to stop. `Shutdown` is called exactly
 once after a successful initialization, with a cleanup context that has a
-bounded deadline. It is not called when `Init` fails.
+bounded deadline. It is not called when `Init` fails; a mod must clean up
+any partially initialized resources before returning an initialization error.
 
 The context also exposes the session's Minecraft client, a mod-scoped logger,
 a session event bus, and read-only mod metadata.
@@ -50,34 +51,33 @@ type ChatReceived struct {
 }
 
 func (ExampleMod) Init(ctx api.ModContext) error {
-	subscription, err := api.Subscribe[ChatReceived](
+	_, err := api.Subscribe[ChatReceived](
 		ctx.Events(),
 		func(eventCtx context.Context, event ChatReceived) error {
 			ctx.Logger().Info("chat received", "sender", event.Sender)
 			return nil
 		},
 	)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		<-ctx.Context().Done()
-		subscription.Cancel()
-	}()
-	return nil
+	return err
 }
 ```
 
 Publishers use `api.Publish(ctx, bus, event)`. The runtime event bus invokes
-handlers synchronously in subscription order. Handler errors are collected
+handlers synchronously in subscription order, so keep handlers short and
+move long-running work to mod-owned goroutines. Handler errors are collected
 without preventing later handlers from running; panics are recovered and
-reported to the publisher. Subscription cancellation is safe to call more
-than once. A handler already running when cancellation occurs may finish.
+reported to the publisher.
 
 Each event is matched by its exact concrete Go type; a pointer event and a
 value event are different event types. The event bus is safe for concurrent
 use, but a handler should still protect its own mutable state.
+
+Subscriptions created through a mod's `ctx.Events()` are automatically
+cancelled when that mod's `ctx.Context()` ends. The callback context is also
+cancelled when either the publishing operation or the subscribing mod's
+context is cancelled. A mod may still call `Subscription.Cancel()` manually;
+it is safe to call more than once. A handler already running when cancellation
+occurs may finish.
 
 ## Minimum mod directory
 
@@ -111,6 +111,33 @@ A registered factory creates a fresh mod instance for each session. The
 registry validates identifiers, rejects duplicate registrations, sorts its
 listed IDs, and reports missing registrations, nil instances, and factory
 panics.
+
+To start a mod session, the host supplies the registry, discovered manifests,
+and the session's Minecraft client:
+
+```go
+discovered, err := mods.Discover("Mods")
+if err != nil {
+	return err
+}
+
+session, err := mods.StartSession(ctx, mods.SessionOptions{
+	Registry: registry,
+	Mods:     discovered,
+	Client:   client,
+})
+if err != nil {
+	return err
+}
+defer session.Close()
+```
+
+Mods are initialized in dependency-first order. If initialization fails,
+already initialized mods are shut down in reverse order. Normal shutdown
+cancels every mod context, then calls each successful mod's `Shutdown`
+method in reverse dependency order. The session owns one event bus shared
+by its mods and closes it after shutdown. Parent-context cancellation also
+triggers session shutdown.
 
 This means adding or changing Go mod code currently requires rebuilding the
 Zicor executable. The `Mods/ModName/entry.go` layout remains the intended
